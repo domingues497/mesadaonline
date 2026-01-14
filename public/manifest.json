@@ -1,0 +1,27 @@
+{
+  "name": "Tarefas & Mesada - Gestão Familiar",
+  "short_name": "T&M",
+  "description": "App para famílias organizarem tarefas, mesadas e recompensas",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#0ea5e9",
+  "background_color": "#ffffff",
+  "categories": ["productivity", "finance", "lifestyle"],
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png", 
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,199 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tarefas & Mesada Design System - Family-first, beautiful, modern */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@layer base {
+  :root {
+    /* Modern family app color palette */
+    --background: 0 0% 100%;
+    --foreground: 215 25% 27%;
+    
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 27%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 27%;
+    
+    /* Primary: Beautiful sky blue for trust and family */
+    --primary: 199 89% 48%;  /* #0ea5e9 sky-500 */
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 199 89% 60%;
+    --primary-dark: 199 89% 35%;
+    
+    /* Secondary: Soft slate for elegance */
+    --secondary: 215 25% 97%;
+    --secondary-foreground: 215 25% 27%;
+    
+    /* Success: Green for achievements */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --success-light: 142 71% 95%;
+    
+    /* Warning: Amber for pending tasks */
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 15%;
+    --warning-light: 38 92% 95%;
+    
+    /* Muted: Soft neutral tones */
+    --muted: 215 16% 97%;
+    --muted-foreground: 215 13% 65%;
+    
+    /* Accent: Complementary purple */
+    --accent: 262 83% 58%;
+    --accent-foreground: 0 0% 100%;
+    
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --border: 215 14% 91%;
+    --input: 215 14% 91%;
+    --ring: 199 89% 48%;
+    
+    --radius: 0.75rem;
+    
+    /* Beautiful gradients for family vibes */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-light)));
+    --gradient-success: linear-gradient(135deg, hsl(var(--success)), hsl(142 71% 55%));
+    --gradient-card: linear-gradient(135deg, hsl(0 0% 100%), hsl(215 25% 99%));
+    --gradient-background: linear-gradient(180deg, hsl(199 89% 98%), hsl(0 0% 100%));
+    
+    /* Elegant shadows */
+    --shadow-sm: 0 1px 3px 0 hsl(215 25% 27% / 0.1);
+    --shadow-card: 0 4px 12px -2px hsl(215 25% 27% / 0.08);
+    --shadow-lg: 0 10px 25px -3px hsl(215 25% 27% / 0.1);
+    --shadow-primary: 0 4px 12px -2px hsl(var(--primary) / 0.25);
+    
+    /* Smooth transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 215 25% 7%;
+    --foreground: 215 25% 95%;
+    
+    --card: 215 25% 10%;
+    --card-foreground: 215 25% 95%;
+    
+    --popover: 215 25% 10%;
+    --popover-foreground: 215 25% 95%;
+    
+    --primary: 199 89% 60%;
+    --primary-foreground: 215 25% 7%;
+    
+    --secondary: 215 25% 15%;
+    --secondary-foreground: 215 25% 90%;
+    
+    --muted: 215 25% 15%;
+    --muted-foreground: 215 13% 65%;
+    
+    --accent: 262 83% 65%;
+    --accent-foreground: 215 25% 7%;
+    
+    --destructive: 0 84% 65%;
+    --destructive-foreground: 215 25% 95%;
+    
+    --border: 215 25% 20%;
+    --input: 215 25% 20%;
+    --ring: 199 89% 60%;
+    
+    /* Dark mode gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(199 89% 70%));
+    --gradient-card: linear-gradient(135deg, hsl(215 25% 10%), hsl(215 25% 12%));
+    --gradient-background: linear-gradient(180deg, hsl(215 25% 5%), hsl(215 25% 8%));
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground font-sans;
+    background: var(--gradient-background);
+    min-height: 100vh;
+  }
+  
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  /* Custom gradient utilities */
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+  
+  .gradient-success {
+    background: var(--gradient-success);
+  }
+  
+  .gradient-card {
+    background: var(--gradient-card);
+  }
+  
+  /* Custom shadow utilities */
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+  
+  .shadow-primary {
+    box-shadow: var(--shadow-primary);
+  }
+  
+  /* Animation utilities */
+  .transition-smooth {
+    transition: var(--transition-smooth);
+  }
+  
+  .transition-bounce {
+    transition: var(--transition-bounce);
+  }
+  
+  /* Task completion animation */
+  .task-complete {
+    @apply transition-bounce;
+    animation: task-bounce 0.6s ease-out;
+  }
+  
+  @keyframes task-bounce {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+  }
+  
+  /* Money value styling */
+  .money-positive {
+    @apply text-success font-semibold;
+  }
+  
+  .money-negative {
+    @apply text-destructive font-semibold;
+  }
+  
+  /* Card hover effects */
+  .card-interactive {
+    @apply transition-smooth hover:shadow-lg hover:-translate-y-1 cursor-pointer;
+  }
+}
