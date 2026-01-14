@@ -6,8 +6,9 @@ export default function Layout() {
   return (
     <AuthProvider>
       <Stack>
-        <Stack.Screen name="index" options={{ title: "Início" }} />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="auth" options={{ title: "Autenticação", headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
     </AuthProvider>
   );
