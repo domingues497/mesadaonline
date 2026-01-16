@@ -41,6 +41,9 @@ export interface Task {
   recurrence: TaskRecurrence;
   attachment_required: boolean;
   active: boolean;
+  recurrence_day?: number | null;
+  recurrence_time?: string | null;
+  assignees?: string[] | null;
 }
 
 export interface TaskInstance {

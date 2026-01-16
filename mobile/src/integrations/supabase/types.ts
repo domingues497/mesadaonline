@@ -270,6 +270,7 @@ export type Database = {
       tasks: {
         Row: {
           active: boolean | null
+          assignees: string[] | null
           attachment_required: boolean | null
           created_at: string
           description: string | null
@@ -281,6 +282,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean | null
+          assignees?: string[] | null
           attachment_required?: boolean | null
           created_at?: string
           description?: string | null
@@ -292,6 +294,7 @@ export type Database = {
         }
         Update: {
           active?: boolean | null
+          assignees?: string[] | null
           attachment_required?: boolean | null
           created_at?: string
           description?: string | null

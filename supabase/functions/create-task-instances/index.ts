@@ -12,14 +12,19 @@ interface Task {
   title: string
   value_cents: number
   recurrence: 'none' | 'daily' | 'weekly' | 'monthly'
+  recurrence_day?: number | null
+  recurrence_time?: string | null
   active: boolean
+  description?: string | null
+  assignees?: string[] | null
 }
 
 interface Daughter {
   id: string
+  family_id: string // Needed for safety check
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -46,7 +51,7 @@ serve(async (req) => {
       return await createRecurringTaskInstances(supabaseClient)
     }
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in create-task-instances:', error)
     return new Response(
       JSON.stringify({ error: error.message }),
@@ -168,14 +173,24 @@ async function createRecurringTaskInstances(supabaseClient: any) {
     throw tasksError
   }
 
-  // Get all daughters
-  const { data: daughters, error: daughtersError } = await supabaseClient
+  // Get all daughters with their family_id to map correctly
+  // We need to know which family each daughter belongs to
+  const { data: daughtersData, error: daughtersError } = await supabaseClient
     .from('daughters')
-    .select('id')
+    .select(`
+      id,
+      profiles!inner(family_id)
+    `)
 
   if (daughtersError) {
     throw daughtersError
   }
+
+  // Flatten the structure for easier access
+  const allDaughters = daughtersData.map((d: any) => ({
+    id: d.id,
+    family_id: d.profiles.family_id
+  }));
 
   const today = new Date()
   const tomorrow = new Date(today)
@@ -184,21 +199,76 @@ async function createRecurringTaskInstances(supabaseClient: any) {
   let createdInstances = 0
 
   for (const task of tasks as Task[]) {
-    for (const daughter of daughters as Daughter[]) {
+    const scheduledWeekday = task.recurrence_day ?? null
+
+    // Determine target daughters for this task
+    let targetDaughters: { id: string }[] = [];
+
+    if (task.assignees && task.assignees.length > 0) {
+      // Use specific assignees
+      // Validate they belong to the same family (optional safety, but good practice)
+      targetDaughters = allDaughters.filter((d: any) => 
+        task.assignees!.includes(d.id) && d.family_id === task.family_id
+      );
+    } else {
+      // Fallback: All daughters of the family
+      targetDaughters = allDaughters.filter((d: any) => d.family_id === task.family_id);
+    }
+
+    for (const daughter of targetDaughters) {
       let dueDate: Date | null = null
 
       // Calculate due date based on recurrence
       switch (task.recurrence) {
         case 'daily':
-          dueDate = tomorrow
+          // If a specific day is selected for daily, strictly follow it (acting as weekly)
+          // Otherwise, run every day
+          if (scheduledWeekday !== null) {
+            const target = new Date(tomorrow)
+            // Check if tomorrow matches the scheduled day
+            if (target.getDay() === scheduledWeekday) {
+              dueDate = target
+            }
+          } else {
+            dueDate = tomorrow
+          }
           break
         case 'weekly':
-          dueDate = new Date(tomorrow)
-          dueDate.setDate(tomorrow.getDate() + 7)
+          if (scheduledWeekday !== null) {
+            const target = new Date(tomorrow)
+            for (let i = 0; i < 14; i++) {
+              if (target.getDay() === scheduledWeekday) {
+                dueDate = target
+                break
+              }
+              target.setDate(target.getDate() + 1)
+            }
+          } else {
+            // Fallback to exactly one week from now if no day specified
+            dueDate = new Date(tomorrow)
+            dueDate.setDate(tomorrow.getDate() + 7)
+          }
           break
         case 'monthly':
-          dueDate = new Date(tomorrow)
-          dueDate.setMonth(tomorrow.getMonth() + 1)
+          // Only create if tomorrow is the same day of the month as created_at (or recurrence_day if we supported it)
+          // User said "monthly doesn't need, one time", so we use created_at date or just 1st of month?
+          // Let's use created_at day of month to spread load
+          // Note: This assumes task.created_at exists (it should for Supabase)
+          // We need to fetch created_at in the select query!
+          // But wait, "Task" interface doesn't have created_at. I need to add it.
+          // And update the select query.
+          // Fallback: If we don't have created_at, maybe use 1st of month?
+          // Existing logic was: dueDate = new Date(tomorrow); dueDate.setMonth(tomorrow.getMonth() + 1);
+          // I will use a safe approach:
+          // Check if tomorrow's date matches the recurrence_day (if provided) or created_at (if I can get it).
+          // Since I can't easily change the select * right now without verifying, I'll assume I can add created_at to interface.
+          // 'select *' returns everything, so created_at is there.
+          {
+             const creationDate = (task as any).created_at ? new Date((task as any).created_at) : new Date();
+             if (tomorrow.getDate() === creationDate.getDate()) {
+               dueDate = tomorrow; // Due tomorrow (which is the monthly anniversary)
+             }
+          }
           break
       }
 

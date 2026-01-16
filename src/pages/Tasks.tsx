@@ -24,12 +24,15 @@ export default function Tasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     value_cents: '',
     recurrence: 'none' as TaskRecurrence,
     attachment_required: false,
+    recurrence_day: 1,
+    recurrence_time: '',
   });
 
   useEffect(() => {
@@ -47,14 +50,15 @@ export default function Tasks() {
         .eq('active', true)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error loading tasks:', error);
-        return;
-      }
-
-      setTasks((data as Task[]) || []);
+      if (error) throw error;
+      setTasks(data || []);
     } catch (error) {
       console.error('Error loading tasks:', error);
+      toast({
+        title: "Erro ao carregar tarefas",
+        description: "Não foi possível carregar suas tarefas.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -62,52 +66,55 @@ export default function Tasks() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!profile?.family_id) {
+
+    if (!profile?.family_id || profile.role !== 'parent') {
       toast({
-        title: "Erro",
-        description: "Família não encontrada. Faça logout e login novamente.",
+        title: "Acesso negado",
+        description: "Apenas pais podem criar ou editar tarefas.",
         variant: "destructive",
       });
       return;
     }
 
-    if (profile.role !== 'parent') {
+    if (!formData.title || !formData.value_cents) {
       toast({
-        title: "Erro",
-        description: "Apenas pais podem criar tarefas.",
+        title: "Campos obrigatórios",
+        description: "Por favor, preencha o título e o valor da tarefa.",
         variant: "destructive",
       });
       return;
     }
 
-    if (!formData.title.trim()) {
-      toast({
-        title: "Erro",
-        description: "O título da tarefa é obrigatório.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const valueCents = Math.round(parseFloat(formData.value_cents || '0') * 100);
+    const valueCents = Math.round(parseFloat(formData.value_cents) * 100);
 
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .insert({
-          family_id: profile.family_id,
-          title: formData.title.trim(),
-          description: formData.description.trim() || null,
-          value_cents: valueCents,
-          recurrence: formData.recurrence,
-          attachment_required: formData.attachment_required,
-        });
+      const payload = {
+        family_id: profile.family_id,
+        title: formData.title.trim(),
+        description: formData.description.trim() || null,
+        value_cents: valueCents,
+        recurrence: formData.recurrence,
+        attachment_required: formData.attachment_required,
+        recurrence_day: ['daily', 'weekly'].includes(formData.recurrence)
+          ? formData.recurrence_day
+          : null,
+        recurrence_time:
+          ['daily', 'weekly'].includes(formData.recurrence) &&
+          formData.recurrence_time
+            ? formData.recurrence_time
+            : null,
+      };
+
+      const query = supabase.from('tasks');
+
+      const { error } = editingTaskId
+        ? await query.update(payload).eq('id', editingTaskId)
+        : await query.insert(payload);
 
       if (error) {
         console.error('Error creating task:', error);
         toast({
-          title: "Erro ao criar tarefa",
+          title: editingTaskId ? "Erro ao atualizar tarefa" : "Erro ao criar tarefa",
           description: error.message,
           variant: "destructive",
         });
@@ -115,8 +122,10 @@ export default function Tasks() {
       }
 
       toast({
-        title: "Tarefa criada!",
-        description: "A tarefa foi criada com sucesso.",
+        title: editingTaskId ? "Tarefa atualizada!" : "Tarefa criada!",
+        description: editingTaskId
+          ? "A tarefa foi atualizada com sucesso."
+          : "A tarefa foi criada com sucesso.",
       });
 
       setFormData({
@@ -125,7 +134,10 @@ export default function Tasks() {
         value_cents: '',
         recurrence: 'none',
         attachment_required: false,
+        recurrence_day: 1,
+        recurrence_time: '',
       });
+      setEditingTaskId(null);
       setShowForm(false);
       loadTasks();
     } catch (error: any) {
@@ -146,6 +158,65 @@ export default function Tasks() {
       monthly: 'Mensal',
     };
     return labels[recurrence];
+  };
+
+  const handleEditTask = (task: Task) => {
+    setFormData({
+      title: task.title,
+      description: task.description || '',
+      value_cents: (task.value_cents / 100).toFixed(2),
+      recurrence: task.recurrence,
+      attachment_required: task.attachment_required,
+      recurrence_day: (task as any).recurrence_day ?? 1,
+      recurrence_time: (task as any).recurrence_time || '',
+    });
+    setEditingTaskId(task.id);
+    setShowForm(true);
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!profile?.family_id || profile.role !== 'parent') {
+      toast({
+        title: "Acesso negado",
+        description: "Apenas pais podem excluir tarefas.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const confirmed = window.confirm('Tem certeza que deseja excluir esta tarefa?');
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ active: false })
+        .eq('id', taskId);
+
+      if (error) {
+        console.error('Error deleting task:', error);
+        toast({
+          title: "Erro ao excluir tarefa",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Tarefa excluída",
+        description: "A tarefa foi desativada com sucesso.",
+      });
+
+      loadTasks();
+    } catch (error: any) {
+      console.error('Error deleting task:', error);
+      toast({
+        title: "Erro ao excluir tarefa",
+        description: error.message || "Ocorreu um erro inesperado.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (loading) {
@@ -189,7 +260,7 @@ export default function Tasks() {
         {showForm && (
           <Card>
             <CardHeader>
-              <CardTitle>Criar Nova Tarefa</CardTitle>
+            <CardTitle>{editingTaskId ? 'Editar Tarefa' : 'Criar Nova Tarefa'}</CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -235,7 +306,10 @@ export default function Tasks() {
                     <Label htmlFor="recurrence">Recorrência</Label>
                     <Select
                       value={formData.recurrence}
-                      onValueChange={(value) => setFormData({ ...formData, recurrence: value as TaskRecurrence })}
+                      onValueChange={(value) => setFormData({ 
+                        ...formData, 
+                        recurrence: value as TaskRecurrence 
+                      })}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -253,18 +327,92 @@ export default function Tasks() {
                     <Switch
                       id="attachment_required"
                       checked={formData.attachment_required}
-                      onCheckedChange={(checked) => setFormData({ ...formData, attachment_required: checked })}
+                      onCheckedChange={(checked) => setFormData({ 
+                        ...formData, 
+                        attachment_required: checked 
+                      })}
                     />
                     <Label htmlFor="attachment_required">Exigir foto como prova</Label>
                   </div>
                 </div>
 
+                {(formData.recurrence === 'daily' || formData.recurrence === 'weekly') && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Dia da semana</Label>
+                      <Select
+                        value={formData.recurrence_day.toString()}
+                        onValueChange={(value) =>
+                          setFormData({
+                            ...formData,
+                            recurrence_day: parseInt(value),
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o dia da semana" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1">Segunda-feira</SelectItem>
+                          <SelectItem value="2">Terça-feira</SelectItem>
+                          <SelectItem value="3">Quarta-feira</SelectItem>
+                          <SelectItem value="4">Quinta-feira</SelectItem>
+                          <SelectItem value="5">Sexta-feira</SelectItem>
+                          <SelectItem value="6">Sábado</SelectItem>
+                          <SelectItem value="0">Domingo</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Horário</Label>
+                      <div className="flex items-center gap-3">
+                        <Input
+                          type="time"
+                          value={formData.recurrence_time}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              recurrence_time: e.target.value,
+                            })
+                          }
+                          disabled={formData.recurrence_time === ''}
+                        />
+                        <div className="flex items-center space-x-2 whitespace-nowrap">
+                          <Switch
+                            id="any_time"
+                            checked={formData.recurrence_time === ''}
+                            onCheckedChange={(checked) =>
+                              setFormData({
+                                ...formData,
+                                recurrence_time: checked ? '' : '09:00',
+                              })
+                            }
+                          />
+                          <Label htmlFor="any_time">Qualquer horário</Label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   <Button type="submit">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Criar Tarefa
+                    {editingTaskId ? (
+                      <Edit className="w-4 h-4 mr-2" />
+                    ) : (
+                      <Plus className="w-4 h-4 mr-2" />
+                    )}
+                    {editingTaskId ? 'Salvar alterações' : 'Criar Tarefa'}
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setShowForm(false);
+                      setEditingTaskId(null);
+                    }}
+                  >
                     Cancelar
                   </Button>
                 </div>
@@ -314,10 +462,18 @@ export default function Tasks() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEditTask(task)}
+                      >
                         <Edit className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="sm">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteTask(task.id)}
+                      >
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
