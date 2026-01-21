@@ -49,8 +49,16 @@ export default function ProfileScreen() {
     if (profile) {
       setDisplayName(profile.display_name);
       setPhone(profile.phone || "");
-    } else if (user?.user_metadata?.display_name) {
-      setDisplayName(user.user_metadata.display_name);
+    } else {
+      if (user?.user_metadata?.display_name) {
+        setDisplayName(user.user_metadata.display_name);
+      }
+      if (user?.user_metadata?.phone) {
+        setPhone(user.user_metadata.phone);
+      }
+      if (user?.user_metadata?.family_name) {
+        setFamilyName(user.user_metadata.family_name);
+      }
     }
   }, [user, profile]);
 

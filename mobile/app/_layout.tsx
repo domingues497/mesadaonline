@@ -1,8 +1,8 @@
+import "./global.css";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { View, ActivityIndicator } from "react-native";
-import "../global.css";
 
 function InitialLayout() {
   const { session, loading } = useAuth();

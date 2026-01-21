@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [daughter, setDaughter] = useState<Daughter | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, retryCount = 0) => {
     try {
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
@@ -66,56 +66,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (!profileData) {
-        // Auto-correção: Se não tiver perfil mas tiver metadados de pai, tenta criar
+        // Retry logic for potential race conditions during signup
+        if (retryCount < 3) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return fetchProfile(userId, retryCount + 1);
+        }
+
         const { data: { user } } = await supabase.auth.getUser();
         if (user && user.id === userId && user.user_metadata?.role === 'parent') {
           const meta = user.user_metadata;
-          // Verifica se tem dados mínimos para criar família (nome da família)
-          // Se o usuário veio do fluxo mobile antigo, talvez não tenha family_name no metadata se o signUp não salvou.
-          // Mas vamos assumir que o signUp vai salvar daqui pra frente.
-          // Para o usuário atual, se o signUp antigo não salvou family_name no metadata, não temos como recuperar.
-          // O signUp antigo salvava: display_name, role. Só.
-          // O código antigo: options: { data: { display_name: displayName, role } }
-          // Então o usuário atual NÃO TEM family_name no metadata. Ferrou.
-          
-          // Se não tiver family_name, não dá pra criar família.
-          // Mas o usuário digitou isso no form. Perdeu-se.
-          
-          // Solução de contorno para o usuário atual: 
-          // Se ele tentar logar e cair aqui, e não tiver family_name, ele vai ter que sair e criar conta de novo (com o signUp novo).
-          // Ou podemos permitir que ele preencha os dados de novo? Não, a UI não suporta isso agora.
-          
-          // Vamos implementar o fix para futuros e para quem tiver metadados.
           if (meta.family_name) {
-             const { data: family, error: famError } = await supabase
-              .from('families')
-              .insert({ name: meta.family_name, email: meta.family_email || user.email })
-              .select()
-              .single();
-             
-             if (!famError && family) {
-               await supabase.from('profiles').insert({
-                 id: userId,
-                 family_id: family.id,
-                 role: 'parent',
-                 display_name: meta.display_name,
-                 phone: meta.phone,
-                 username: meta.username
-               });
-               await supabase.from('settings').insert({ family_id: family.id });
-               
-               // Busca novamente
-               const { data: newProfile } = await supabase
+            const { error: rpcError } = await supabase.rpc('create_family_and_parent', {
+              family_name: meta.family_name,
+              parent_display_name: meta.display_name || '',
+              parent_phone: meta.phone || null,
+              family_email: meta.family_email || user.email,
+              parent_username: meta.username || null
+            });
+
+            if (!rpcError) {
+              const { data: newProfile } = await supabase
                 .from('profiles')
                 .select('*')
                 .eq('id', userId)
                 .maybeSingle();
-                
-               if (newProfile) {
-                 setProfile(newProfile as Profile);
-                 return;
-               }
-             }
+
+              if (newProfile) {
+                setProfile(newProfile as Profile);
+                return;
+              }
+            }
           }
         }
 
@@ -148,29 +128,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    let mounted = true;
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        fetchProfile(session.user.id).then(() => {
+          if (mounted) setLoading(false);
+        });
       } else {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id).then(() => setLoading(false));
+        fetchProfile(session.user.id).then(() => {
+          if (mounted) setLoading(false);
+        });
       } else {
         setProfile(null);
         setDaughter(null);
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -211,26 +202,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Se o login for automático e tivermos dados para criar a família
     if (data.session && data.user && role === 'parent' && familyName) {
       try {
-        const { data: family, error: famError } = await supabase
-          .from('families')
-          .insert({ name: familyName, email: familyEmail || email })
-          .select()
-          .single();
-        
-        if (famError) throw famError;
-
-        const { error: profError } = await supabase.from('profiles').insert({
-          id: data.user.id,
-          family_id: family.id,
-          role: 'parent',
-          display_name: displayName,
-          phone: phone || null,
-          username: username || null,
+        const { error: rpcError } = await supabase.rpc('create_family_and_parent', {
+          family_name: familyName,
+          parent_display_name: displayName,
+          parent_phone: phone || null,
+          family_email: familyEmail || email,
+          parent_username: username || null
         });
 
-        if (profError) throw profError;
-
-        await supabase.from('settings').insert({ family_id: family.id });
+        if (rpcError) throw rpcError;
       } catch (err: any) {
         console.error("Erro ao criar estrutura inicial:", err);
         // Não falha o signUp, pois o usuário foi criado. O fetchProfile/auto-fix tentará resolver.

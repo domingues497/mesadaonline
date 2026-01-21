@@ -1,22 +1,79 @@
-import { View, Text, ScrollView, RefreshControl } from "react-native";
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useCallback, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatBRL } from "@/lib/currency";
 import { TaskCard } from "@/components/TaskCard";
+import { useRouter } from "expo-router";
+import { ArrowRight, Wallet, CheckSquare } from "lucide-react-native";
 
 export default function Dashboard() {
   const { profile } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const router = useRouter();
   const [tasks, setTasks] = useState<any[]>([]);
   const [balance, setBalance] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
+
+  const [daughters, setDaughters] = useState<any[]>([]);
+  const [parentStats, setParentStats] = useState({
+    totalBalance: 0,
+    pendingApprovals: 0
+  });
 
   const loadData = async () => {
     if (!profile) return;
 
     try {
+      if (profile.role === 'parent') {
+        // 1. Get all daughters
+        const { data: daughtersData, error: daughtersError } = await supabase
+          .from('profiles')
+          .select('id, display_name, role')
+          .eq('family_id', profile.family_id)
+          .eq('role', 'child');
+
+        if (daughtersError) throw daughtersError;
+
+        if (daughtersData) {
+          const daughterIds = daughtersData.map(d => d.id);
+          
+          // 2. Get balances for all daughters
+          // We fetch all transactions for these daughters
+          const { data: transactions } = await supabase
+            .from('transactions')
+            .select('daughter_id, amount_cents')
+            .in('daughter_id', daughterIds);
+            
+          const balances: Record<string, number> = {};
+          let totalBalance = 0;
+
+          transactions?.forEach(tx => {
+             balances[tx.daughter_id] = (balances[tx.daughter_id] || 0) + tx.amount_cents;
+             totalBalance += tx.amount_cents;
+          });
+
+          // 3. Get pending approvals count
+          const { count } = await supabase
+             .from('task_instances')
+             .select('id', { count: 'exact', head: true })
+             .in('daughter_id', daughterIds)
+             .eq('status', 'submitted');
+
+          setParentStats({
+            totalBalance,
+            pendingApprovals: count || 0
+          });
+
+          setDaughters(daughtersData.map(d => ({
+            ...d,
+            balance: balances[d.id] || 0
+          })));
+        }
+
+      } else {
+        // Child Logic
         // Load tasks
         const { data: taskData } = await supabase
         .from('task_instances')
@@ -51,6 +108,7 @@ export default function Dashboard() {
             const total = transactions.reduce((acc, curr) => acc + curr.amount_cents, 0);
             setBalance(total);
         }
+      }
     } catch (error) {
         console.error("Error loading dashboard data:", error);
     }
@@ -65,6 +123,73 @@ export default function Dashboard() {
     await loadData();
     setRefreshing(false);
   }, [profile]);
+
+  if (profile?.role === 'parent') {
+    return (
+        <SafeAreaView className="flex-1 bg-gray-50">
+          <ScrollView 
+            contentContainerClassName="p-4 gap-4"
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          >
+            <View className="flex-row justify-between items-center mb-2">
+              <View>
+                <Text className="text-gray-500">Olá,</Text>
+                <Text className="text-2xl font-bold text-gray-900">{profile?.display_name || 'Responsável'}</Text>
+              </View>
+            </View>
+
+            {/* Total Balance Card */}
+            <View className="bg-blue-600 rounded-2xl p-6 shadow-sm">
+              <Text className="text-blue-100 text-sm font-medium mb-1">Total a Pagar (Geral)</Text>
+              <Text className="text-white text-3xl font-bold">{formatBRL(parentStats.totalBalance)}</Text>
+              <Text className="text-blue-200 text-xs mt-2">Soma de todas as recompensas acumuladas</Text>
+            </View>
+
+            {/* Pending Approvals Card */}
+            <TouchableOpacity 
+                onPress={() => router.push('/tasks')}
+                className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex-row items-center justify-between"
+            >
+                <View className="flex-row items-center gap-3">
+                    <View className="w-10 h-10 bg-orange-100 rounded-full items-center justify-center">
+                        <CheckSquare size={20} color="#f97316" />
+                    </View>
+                    <View>
+                        <Text className="text-gray-900 font-bold text-lg">Aprovações Pendentes</Text>
+                        <Text className="text-gray-500 text-sm">Tarefas aguardando revisão</Text>
+                    </View>
+                </View>
+                <View className="bg-orange-100 px-3 py-1 rounded-full">
+                    <Text className="text-orange-700 font-bold">{parentStats.pendingApprovals}</Text>
+                </View>
+            </TouchableOpacity>
+
+            {/* Daughters Balance List */}
+            <View className="mt-2">
+                <Text className="text-lg font-bold text-gray-900 mb-3">Recompensas por Filho</Text>
+                {daughters.length === 0 ? (
+                    <Text className="text-gray-500 text-center py-4">Nenhum filho cadastrado</Text>
+                ) : (
+                    daughters.map(daughter => (
+                        <View key={daughter.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-3 flex-row justify-between items-center">
+                            <View className="flex-row items-center gap-3">
+                                <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
+                                    <Text className="text-gray-600 font-bold text-lg">
+                                        {daughter.display_name.charAt(0).toUpperCase()}
+                                    </Text>
+                                </View>
+                                <Text className="text-gray-900 font-semibold text-base">{daughter.display_name}</Text>
+                            </View>
+                            <Text className="text-green-600 font-bold text-lg">{formatBRL(daughter.balance)}</Text>
+                        </View>
+                    ))
+                )}
+            </View>
+
+          </ScrollView>
+        </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50">

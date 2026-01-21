@@ -11,13 +11,14 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from "expo-camera";
+import { ArrowLeft, LogIn, UserPlus, Users } from "lucide-react-native";
 
-type AuthMode = "signin" | "signup_parent" | "signup_child";
+type AuthMode = "selection" | "signin" | "signup_parent" | "signup_child";
 
 export default function Index() {
   const { signIn, signUp } = useAuth();
   const [permission, requestPermission] = useCameraPermissions();
-  const [mode, setMode] = useState<AuthMode>("signin");
+  const [mode, setMode] = useState<AuthMode>("selection");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -199,10 +200,9 @@ export default function Index() {
         }
       }
 
-      const { error: updateError } = await supabase
-        .from("invites")
-        .update({ used_at: new Date().toISOString() })
-        .eq("id", invite.id);
+      const { error: updateError } = await supabase.rpc("mark_invite_used", {
+        invite_id: invite.id,
+      });
 
       if (updateError) {
         Alert.alert(
@@ -300,6 +300,18 @@ export default function Index() {
           </View>
         )}
 
+        {mode !== "selection" && (
+          <TouchableOpacity
+            onPress={() => setMode("selection")}
+            style={{
+              marginBottom: 20,
+              alignSelf: "flex-start",
+            }}
+          >
+            <ArrowLeft size={24} color="#374151" />
+          </TouchableOpacity>
+        )}
+
         <Text
           style={{
             fontSize: 32,
@@ -316,275 +328,297 @@ export default function Index() {
             fontSize: 14,
             color: "#6b7280",
             textAlign: "center",
-            marginBottom: 24,
+            marginBottom: 32,
           }}
         >
           Organize a mesada em família de forma simples e visual
         </Text>
 
-        <View
-          style={{
-            flexDirection: "row",
-            backgroundColor: "#e5e7eb",
-            borderRadius: 999,
-            padding: 4,
-            marginBottom: 20,
-          }}
-        >
-          <TouchableOpacity
-            onPress={() => setMode("signin")}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              borderRadius: 999,
-              backgroundColor: mode === "signin" ? "#fff" : "transparent",
-            }}
-          >
-            <Text
-              style={{
-                textAlign: "center",
-                fontWeight: "600",
-                color: mode === "signin" ? "#111827" : "#6b7280",
-              }}
-            >
-              Entrar
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setMode("signup_parent")}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              borderRadius: 999,
-              backgroundColor: mode === "signup_parent" ? "#fff" : "transparent",
-            }}
-          >
-            <Text
-              style={{
-                textAlign: "center",
-                fontWeight: "600",
-                color: mode === "signup_parent" ? "#111827" : "#6b7280",
-              }}
-            >
-              Sou responsável
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setMode("signup_child")}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              borderRadius: 999,
-              backgroundColor: mode === "signup_child" ? "#fff" : "transparent",
-            }}
-          >
-            <Text
-              style={{
-                textAlign: "center",
-                fontWeight: "600",
-                color: mode === "signup_child" ? "#111827" : "#6b7280",
-              }}
-            >
-              Sou filho(a)
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {isParentSignup && (
-          <View style={{ marginBottom: 12 }}>
-            <Text
-              style={{
-                fontSize: 14,
-                fontWeight: "500",
-                color: "#374151",
-                marginBottom: 4,
-              }}
-            >
-              Seu nome
-            </Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Ex: Ana, Paulo..."
-              placeholderTextColor="#9ca3af"
-              autoCapitalize="words"
-              style={{
-                borderWidth: 1,
-                borderColor: "#e5e7eb",
-                borderRadius: 12,
-                paddingHorizontal: 14,
-                paddingVertical: Platform.OS === "ios" ? 12 : 8,
-                backgroundColor: "#fff",
-                fontSize: 15,
-              }}
-            />
-          </View>
-        )}
-
-        {isParentSignup && (
-          <View style={{ marginBottom: 12 }}>
-            <Text
-              style={{
-                fontSize: 14,
-                fontWeight: "500",
-                color: "#374151",
-                marginBottom: 4,
-              }}
-            >
-              Nome da família
-            </Text>
-            <TextInput
-              value={familyName}
-              onChangeText={setFamilyName}
-              placeholder="Ex: Família Silva"
-              placeholderTextColor="#9ca3af"
-              autoCapitalize="words"
-              style={{
-                borderWidth: 1,
-                borderColor: "#e5e7eb",
-                borderRadius: 12,
-                paddingHorizontal: 14,
-                paddingVertical: Platform.OS === "ios" ? 12 : 8,
-                backgroundColor: "#fff",
-                fontSize: 15,
-              }}
-            />
-          </View>
-        )}
-
-        {isChildSignup && (
-          <View style={{ marginBottom: 12 }}>
-            <Text
-              style={{
-                fontSize: 14,
-                fontWeight: "500",
-                color: "#374151",
-                marginBottom: 4,
-              }}
-            >
-              Código da família
-            </Text>
-            <TextInput
-              value={familyCode}
-              onChangeText={setFamilyCode}
-              placeholder="Informe o código que seu responsável enviou"
-              placeholderTextColor="#9ca3af"
-              autoCapitalize="none"
-              style={{
-                borderWidth: 1,
-                borderColor: "#e5e7eb",
-                borderRadius: 12,
-                paddingHorizontal: 14,
-                paddingVertical: Platform.OS === "ios" ? 12 : 8,
-                backgroundColor: "#fff",
-                fontSize: 15,
-              }}
-            />
+        {mode === "selection" ? (
+          <View style={{ gap: 16 }}>
             <TouchableOpacity
-              onPress={handleOpenScanner}
-              style={{ marginTop: 8, alignSelf: "flex-start" }}
+              onPress={() => setMode("signin")}
+              style={{
+                backgroundColor: "#fff",
+                padding: 20,
+                borderRadius: 16,
+                flexDirection: "row",
+                alignItems: "center",
+                borderWidth: 1,
+                borderColor: "#e5e7eb",
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 2,
+                elevation: 2,
+              }}
             >
-              <Text
-                style={{
-                  fontSize: 13,
-                  fontWeight: "600",
-                  color: "#2563eb",
-                }}
-              >
-                Ler QRCode do convite
-              </Text>
+              <View style={{ padding: 10, backgroundColor: "#eff6ff", borderRadius: 12, marginRight: 16 }}>
+                <LogIn size={24} color="#2563eb" />
+              </View>
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: "#111827" }}>Já tenho conta</Text>
+                <Text style={{ fontSize: 13, color: "#6b7280" }}>Entrar com email e senha</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setMode("signup_parent")}
+              style={{
+                backgroundColor: "#fff",
+                padding: 20,
+                borderRadius: 16,
+                flexDirection: "row",
+                alignItems: "center",
+                borderWidth: 1,
+                borderColor: "#e5e7eb",
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 2,
+                elevation: 2,
+              }}
+            >
+              <View style={{ padding: 10, backgroundColor: "#f0fdf4", borderRadius: 12, marginRight: 16 }}>
+                <Users size={24} color="#16a34a" />
+              </View>
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: "#111827" }}>Criar nova família</Text>
+                <Text style={{ fontSize: 13, color: "#6b7280" }}>Para pais e responsáveis</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setMode("signup_child")}
+              style={{
+                backgroundColor: "#fff",
+                padding: 20,
+                borderRadius: 16,
+                flexDirection: "row",
+                alignItems: "center",
+                borderWidth: 1,
+                borderColor: "#e5e7eb",
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 2,
+                elevation: 2,
+              }}
+            >
+              <View style={{ padding: 10, backgroundColor: "#fdf2f8", borderRadius: 12, marginRight: 16 }}>
+                <UserPlus size={24} color="#db2777" />
+              </View>
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: "#111827" }}>Entrar com convite</Text>
+                <Text style={{ fontSize: 13, color: "#6b7280" }}>Para filhos e dependentes</Text>
+              </View>
             </TouchableOpacity>
           </View>
-        )}
+        ) : (
+          <>
+            <View style={{ marginBottom: 12 }}>
+              <Text style={{ fontSize: 18, fontWeight: "600", color: "#111827", textAlign: "center", marginBottom: 20 }}>
+                {mode === "signin" ? "Acesse sua conta" : mode === "signup_parent" ? "Criar conta de responsável" : "Entrar com código da família"}
+              </Text>
+            </View>
 
-        <View style={{ marginBottom: 12 }}>
-          <Text
-            style={{
-              fontSize: 14,
-              fontWeight: "500",
-              color: "#374151",
-              marginBottom: 4,
-            }}
-          >
-            Email
-          </Text>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="voce@email.com"
-            placeholderTextColor="#9ca3af"
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={{
-              borderWidth: 1,
-              borderColor: "#e5e7eb",
-              borderRadius: 12,
-              paddingHorizontal: 14,
-              paddingVertical: Platform.OS === "ios" ? 12 : 8,
-              backgroundColor: "#fff",
-              fontSize: 15,
-            }}
-          />
-        </View>
+            {isParentSignup && (
+              <View style={{ marginBottom: 12 }}>
+                <Text
+                  style={{
+                    fontSize: 14,
+                    fontWeight: "500",
+                    color: "#374151",
+                    marginBottom: 4,
+                  }}
+                >
+                  Seu nome
+                </Text>
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Ex: Ana, Paulo..."
+                  placeholderTextColor="#9ca3af"
+                  autoCapitalize="words"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: "#e5e7eb",
+                    borderRadius: 12,
+                    paddingHorizontal: 14,
+                    paddingVertical: Platform.OS === "ios" ? 12 : 8,
+                    backgroundColor: "#fff",
+                    fontSize: 15,
+                  }}
+                />
+              </View>
+            )}
 
-        <View style={{ marginBottom: 18 }}>
-          <Text
-            style={{
-              fontSize: 14,
-              fontWeight: "500",
-              color: "#374151",
-              marginBottom: 4,
-            }}
-          >
-            Senha
-          </Text>
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Mínimo 6 caracteres"
-            placeholderTextColor="#9ca3af"
-            secureTextEntry
-            style={{
-              borderWidth: 1,
-              borderColor: "#e5e7eb",
-              borderRadius: 12,
-              paddingHorizontal: 14,
-              paddingVertical: Platform.OS === "ios" ? 12 : 8,
-              backgroundColor: "#fff",
-              fontSize: 15,
-            }}
-          />
-        </View>
+            {isParentSignup && (
+              <View style={{ marginBottom: 12 }}>
+                <Text
+                  style={{
+                    fontSize: 14,
+                    fontWeight: "500",
+                    color: "#374151",
+                    marginBottom: 4,
+                  }}
+                >
+                  Nome da família
+                </Text>
+                <TextInput
+                  value={familyName}
+                  onChangeText={setFamilyName}
+                  placeholder="Ex: Família Silva"
+                  placeholderTextColor="#9ca3af"
+                  autoCapitalize="words"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: "#e5e7eb",
+                    borderRadius: 12,
+                    paddingHorizontal: 14,
+                    paddingVertical: Platform.OS === "ios" ? 12 : 8,
+                    backgroundColor: "#fff",
+                    fontSize: 15,
+                  }}
+                />
+              </View>
+            )}
 
-        <TouchableOpacity
-          onPress={handleSubmit}
-          disabled={isLoading}
-          style={{
-            backgroundColor: "#2563eb",
-            borderRadius: 999,
-            paddingVertical: 14,
-            alignItems: "center",
-            opacity: isLoading ? 0.7 : 1,
-          }}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text
+            {isChildSignup && (
+              <View style={{ marginBottom: 12 }}>
+                <Text
+                  style={{
+                    fontSize: 14,
+                    fontWeight: "500",
+                    color: "#374151",
+                    marginBottom: 4,
+                  }}
+                >
+                  Código da família
+                </Text>
+                <TextInput
+                  value={familyCode}
+                  onChangeText={setFamilyCode}
+                  placeholder="Informe o código que seu responsável enviou"
+                  placeholderTextColor="#9ca3af"
+                  autoCapitalize="none"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: "#e5e7eb",
+                    borderRadius: 12,
+                    paddingHorizontal: 14,
+                    paddingVertical: Platform.OS === "ios" ? 12 : 8,
+                    backgroundColor: "#fff",
+                    fontSize: 15,
+                  }}
+                />
+                <TouchableOpacity
+                  onPress={handleOpenScanner}
+                  style={{ marginTop: 8, alignSelf: "flex-start" }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      fontWeight: "600",
+                      color: "#2563eb",
+                    }}
+                  >
+                    Ler QRCode do convite
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <View style={{ marginBottom: 12 }}>
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontWeight: "500",
+                  color: "#374151",
+                  marginBottom: 4,
+                }}
+              >
+                Email
+              </Text>
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="voce@email.com"
+                placeholderTextColor="#9ca3af"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={{
+                  borderWidth: 1,
+                  borderColor: "#e5e7eb",
+                  borderRadius: 12,
+                  paddingHorizontal: 14,
+                  paddingVertical: Platform.OS === "ios" ? 12 : 8,
+                  backgroundColor: "#fff",
+                  fontSize: 15,
+                }}
+              />
+            </View>
+
+            <View style={{ marginBottom: 18 }}>
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontWeight: "500",
+                  color: "#374151",
+                  marginBottom: 4,
+                }}
+              >
+                Senha
+              </Text>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Mínimo 6 caracteres"
+                placeholderTextColor="#9ca3af"
+                secureTextEntry
+                style={{
+                  borderWidth: 1,
+                  borderColor: "#e5e7eb",
+                  borderRadius: 12,
+                  paddingHorizontal: 14,
+                  paddingVertical: Platform.OS === "ios" ? 12 : 8,
+                  backgroundColor: "#fff",
+                  fontSize: 15,
+                }}
+              />
+            </View>
+
+            <TouchableOpacity
+              onPress={handleSubmit}
+              disabled={isLoading}
               style={{
-                color: "#fff",
-                fontSize: 16,
-                fontWeight: "700",
+                backgroundColor: "#2563eb",
+                borderRadius: 999,
+                paddingVertical: 14,
+                alignItems: "center",
+                opacity: isLoading ? 0.7 : 1,
               }}
             >
-              {mode === "signin"
-                ? "Entrar"
-                : isParentSignup
-                ? "Criar família"
-                : "Entrar na família"}
-            </Text>
-          )}
-        </TouchableOpacity>
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text
+                  style={{
+                    color: "#fff",
+                    fontSize: 16,
+                    fontWeight: "700",
+                  }}
+                >
+                  {mode === "signin"
+                    ? "Entrar"
+                    : isParentSignup
+                    ? "Criar família"
+                    : "Entrar na família"}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
 
         <Text
           style={{

@@ -43,6 +43,7 @@ export default function TasksScreen() {
   const [capturedAt, setCapturedAt] = useState<string | null>(null);
   const [submittingTask, setSubmittingTask] = useState(false);
   const [submissionNote, setSubmissionNote] = useState("");
+  const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
 
   const loadTasks = async () => {
     if (!profile) {
@@ -80,6 +81,45 @@ export default function TasksScreen() {
           setTasks(taskData);
         }
       } else if (profile.role === "parent") {
+        // Load pending approvals
+        const { data: pendingData, error: pendingError } = await supabase
+          .from("task_instances")
+          .select(`
+            id,
+            status,
+            due_date,
+            task:tasks (
+              title,
+              value_cents,
+              attachment_required
+            ),
+            daughter:daughters!daughter_id (
+              id,
+              profile:profiles (
+                display_name
+              )
+            ),
+            submissions (
+                id,
+                proof_url,
+                note,
+                created_at
+            )
+          `)
+          .eq("status", "submitted");
+        
+        if (pendingError) console.error("Error loading approvals:", pendingError);
+        if (pendingData) {
+            // Sort submissions to ensure we show the latest one
+            const sortedData = pendingData.map((instance: any) => ({
+                ...instance,
+                submissions: instance.submissions?.sort((a: any, b: any) => 
+                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                )
+            }));
+            setPendingApprovals(sortedData);
+        }
+
         // Load Tasks
         const { data, error } = await supabase
           .from("tasks")
@@ -89,14 +129,18 @@ export default function TasksScreen() {
           .order("created_at", { ascending: false });
 
         if (error) throw error;
-        if (data) setParentTasks(data as any[]); // Cast as any[] to handle assignees
+        if (data) setParentTasks(data as Task[]);
 
         // Load daughters for assignment directly from profiles to avoid ambiguous relationships
+        console.log("Loading daughters for family:", profile.family_id);
         const { data: daughtersData, error: daughtersError } = await supabase
           .from("profiles")
           .select("id, display_name, family_id, role")
           .eq("family_id", profile.family_id)
           .eq("role", "child");
+        
+        console.log("Daughters loaded:", daughtersData);
+        if (daughtersError) console.error("Error loading daughters:", daughtersError);
 
         if (daughtersError) throw daughtersError;
 
@@ -145,7 +189,7 @@ export default function TasksScreen() {
   const handleDeleteTask = async (taskId: string) => {
     Alert.alert(
       "Excluir Tarefa",
-      "Tem certeza que deseja excluir esta tarefa?",
+      "Tem certeza que deseja excluir esta tarefa? Isso não afetará tarefas já realizadas.",
       [
         { text: "Cancelar", style: "cancel" },
         {
@@ -159,13 +203,80 @@ export default function TasksScreen() {
                 .eq("id", taskId);
 
               if (error) throw error;
-              loadTasks();
-            } catch (error: any) {
+              await loadTasks();
+            } catch (error) {
+              console.error("Error deleting task:", error);
               Alert.alert("Erro", "Não foi possível excluir a tarefa.");
             }
           },
         },
       ]
+    );
+  };
+
+  const handleApproveTask = async (instance: any) => {
+    try {
+      setLoading(true);
+      // 1. Update task_instance status
+      const { error: updateError } = await supabase
+        .from('task_instances')
+        .update({ status: 'approved' })
+        .eq('id', instance.id);
+        
+      if (updateError) throw updateError;
+
+      // 2. Create transaction for reward
+      const { error: txError } = await supabase
+        .from('transactions')
+        .insert({
+          daughter_id: instance.daughter.id,
+          amount_cents: instance.task.value_cents,
+          kind: 'task_approved',
+          memo: `Recompensa: ${instance.task.title}`,
+        });
+        
+      if (txError) throw txError;
+      
+      Alert.alert("Sucesso", "Tarefa aprovada e recompensa enviada!");
+      await loadTasks();
+    } catch (error: any) {
+      console.error("Error approving task:", error);
+      Alert.alert("Erro", error.message || "Erro ao aprovar tarefa");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRejectTask = async (instanceId: string) => {
+    Alert.alert(
+        "Rejeitar Tarefa",
+        "Deseja realmente rejeitar esta tarefa? O status voltará para pendente para que a filha possa refazer.",
+        [
+            { text: "Cancelar", style: "cancel" },
+            {
+                text: "Rejeitar",
+                style: "destructive",
+                onPress: async () => {
+                    try {
+                        setLoading(true);
+                        const { error } = await supabase
+                            .from('task_instances')
+                            .update({ status: 'rejected' }) // Or 'pending' if we want them to retry immediately? 'rejected' is better for history.
+                            .eq('id', instanceId);
+                            
+                        if (error) throw error;
+                        
+                        Alert.alert("Tarefa rejeitada", "O status foi atualizado.");
+                        await loadTasks();
+                    } catch (error: any) {
+                        console.error("Error rejecting task:", error);
+                        Alert.alert("Erro", error.message);
+                    } finally {
+                        setLoading(false);
+                    }
+                }
+            }
+        ]
     );
   };
 
@@ -204,6 +315,8 @@ export default function TasksScreen() {
       setCreating(true);
 
       let error;
+      let targetTaskId = editingTaskId;
+
       if (editingTaskId) {
         // Update
         const { error: updateError } = await supabase
@@ -213,16 +326,64 @@ export default function TasksScreen() {
         error = updateError;
       } else {
         // Create
-        const { error: insertError } = await supabase
+        const { data: newTask, error: insertError } = await supabase
           .from("tasks")
-          .insert(taskData);
+          .insert(taskData)
+          .select()
+          .single();
         error = insertError;
+        if (newTask) {
+          targetTaskId = newTask.id;
+        }
       }
 
       if (error) {
         console.error("Error saving task:", error);
         Alert.alert("Erro ao salvar tarefa", error.message);
         return;
+      }
+
+      // Create task instances immediately if applicable
+      if (targetTaskId && selectedAssignees.length > 0) {
+        const now = new Date();
+        // Adjust for timezone to get local YYYY-MM-DD
+        const localDate = new Date(now.getTime() - (now.getTimezoneOffset() * 60000));
+        const todayStr = localDate.toISOString().split('T')[0];
+        const dayOfWeek = now.getDay(); // 0 = Sun, 1 = Mon, etc.
+        
+        let shouldCreateInstance = false;
+        
+        if (recurrence === 'none' || recurrence === 'daily') {
+            shouldCreateInstance = true;
+        } else if (recurrence === 'weekly') {
+            // Check if recurrenceDay matches today
+            if (recurrenceDay === dayOfWeek) {
+                shouldCreateInstance = true;
+            }
+        }
+        
+        if (shouldCreateInstance) {
+            // Create instances for each assignee if not exists
+            for (const daughterId of selectedAssignees) {
+                // Check existing
+                const { data: existing } = await supabase
+                    .from('task_instances')
+                    .select('id')
+                    .eq('task_id', targetTaskId)
+                    .eq('daughter_id', daughterId)
+                    .eq('due_date', todayStr)
+                    .maybeSingle();
+                    
+                if (!existing) {
+                    await supabase.from('task_instances').insert({
+                        task_id: targetTaskId,
+                        daughter_id: daughterId,
+                        due_date: todayStr,
+                        status: 'pending'
+                    });
+                }
+            }
+        }
       }
 
       Alert.alert(
@@ -253,7 +414,7 @@ export default function TasksScreen() {
   };
 
   const handleOpenTaskInstance = (taskInstance: any) => {
-    if (taskInstance.status !== "pending") {
+    if (taskInstance.status !== "pending" && taskInstance.status !== "rejected") {
       return;
     }
     setSelectedTaskInstance(taskInstance);
@@ -330,12 +491,13 @@ export default function TasksScreen() {
 
       if (capturedPhotoUri) {
         const response = await fetch(capturedPhotoUri);
-        const blob = await response.blob();
-        const fileName = `${selectedTaskInstance.id}_${Date.now()}.jpg`;
+        const arrayBuffer = await response.arrayBuffer();
+        // Use user ID as folder name to satisfy RLS policy: auth.uid() = foldername
+        const fileName = `${profile.id}/${selectedTaskInstance.id}_${Date.now()}.jpg`;
 
         const { error: uploadError, data } = await supabase.storage
           .from("task-proofs")
-          .upload(fileName, blob, {
+          .upload(fileName, arrayBuffer, {
             contentType: "image/jpeg",
           });
 
@@ -617,7 +779,7 @@ export default function TasksScreen() {
                 />
               </View>
 
-              {daughters.length > 0 && (
+              {daughters.length > 0 ? (
                 <>
                   <Text className="text-xs font-medium text-gray-700 mb-1 mt-3">
                     Atribuir a:
@@ -652,6 +814,12 @@ export default function TasksScreen() {
                     })}
                   </View>
                 </>
+              ) : (
+                <View className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-100">
+                  <Text className="text-yellow-800 text-xs text-center">
+                    Nenhuma filha encontrada na família. A tarefa será visível para todos os membros futuros.
+                  </Text>
+                </View>
               )}
 
               <View className="flex-row mt-6 space-x-2">
@@ -682,6 +850,68 @@ export default function TasksScreen() {
               </View>
             </View>
           )}
+
+            {pendingApprovals.length > 0 && (
+              <View className="mb-6">
+                <Text className="text-lg font-bold text-gray-900 mb-3">
+                  Aprovações Pendentes ({pendingApprovals.length})
+                </Text>
+                {pendingApprovals.map((instance) => (
+                  <View key={instance.id} className="bg-white p-4 rounded-xl border border-orange-200 mb-3 shadow-sm">
+                    <View className="flex-row justify-between items-start mb-2">
+                      <View>
+                         <Text className="text-sm text-orange-600 font-semibold mb-1">
+                            {instance.daughter?.profile?.display_name} enviou:
+                         </Text>
+                         <Text className="text-gray-900 font-bold text-base">
+                            {instance.task?.title}
+                         </Text>
+                         <Text className="text-gray-500 text-xs mt-1">
+                            {formatBRL(instance.task?.value_cents || 0)}
+                         </Text>
+                      </View>
+                      <View className="px-2 py-1 bg-orange-100 rounded text-xs">
+                        <Text className="text-orange-700 font-medium text-xs">Aguardando</Text>
+                      </View>
+                    </View>
+                    
+                    {instance.submissions?.[0]?.note ? (
+                        <View className="bg-gray-50 p-2 rounded mb-3">
+                            <Text className="text-gray-600 text-sm italic">"{instance.submissions[0].note}"</Text>
+                        </View>
+                    ) : null}
+
+                    {instance.submissions?.[0]?.proof_url ? (
+                        <View className="mb-3">
+                            <Text className="text-xs text-gray-500 mb-1">Comprovante:</Text>
+                            <Image 
+                                source={{ uri: instance.submissions[0].proof_url }} 
+                                style={{ width: '100%', height: 200, borderRadius: 8 }} 
+                                resizeMode="cover"
+                            />
+                        </View>
+                    ) : null}
+
+                    <View className="flex-row gap-3 mt-2">
+                        <TouchableOpacity 
+                            onPress={() => handleRejectTask(instance.id)}
+                            className="flex-1 bg-red-50 py-2 rounded-lg border border-red-100 items-center flex-row justify-center gap-2"
+                        >
+                            <X size={18} color="#ef4444" />
+                            <Text className="text-red-600 font-semibold">Rejeitar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            onPress={() => handleApproveTask(instance)}
+                            className="flex-1 bg-green-600 py-2 rounded-lg items-center flex-row justify-center gap-2"
+                        >
+                            <Check size={18} color="white" />
+                            <Text className="text-white font-semibold">Aprovar</Text>
+                        </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
 
           <View className="bg-white p-4 rounded-xl border border-gray-100">
             <View className="flex-row items-center justify-between mb-3">
@@ -733,6 +963,31 @@ export default function TasksScreen() {
                           <View className="px-2 py-0.5 rounded-full bg-blue-50">
                             <Text className="text-blue-600 text-xs">
                               Prova obrigatória
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <View className="flex-row flex-wrap gap-1 mt-2">
+                        {task.assignees && task.assignees.length > 0 ? (
+                          task.assignees.map((assigneeId) => {
+                            const daughter = daughters.find((d) => d.id === assigneeId);
+                            if (!daughter) return null;
+                            return (
+                              <View
+                                key={assigneeId}
+                                className="px-2 py-0.5 rounded-full bg-purple-50 border border-purple-100"
+                              >
+                                <Text className="text-purple-700 text-[10px]">
+                                  {daughter.display_name}
+                                </Text>
+                              </View>
+                            );
+                          })
+                        ) : (
+                          <View className="px-2 py-0.5 rounded-full bg-gray-50 border border-gray-200">
+                            <Text className="text-gray-500 text-[10px]">
+                              Todas as filhas
                             </Text>
                           </View>
                         )}
@@ -791,6 +1046,13 @@ export default function TasksScreen() {
       {selectedTaskInstance && (
         <View className="absolute inset-0 bg-black/60 justify-center">
           <View className="mx-4 bg-white p-4 rounded-xl">
+            {selectedTaskInstance.status === 'rejected' && (
+              <View className="bg-red-50 p-3 rounded-lg border border-red-100 mb-3">
+                <Text className="text-red-700 font-medium text-sm">
+                  Tarefa rejeitada. Envie uma nova prova/observação.
+                </Text>
+              </View>
+            )}
             <Text className="text-lg font-bold text-gray-900 mb-2">
               {selectedTaskInstance.task?.title}
             </Text>
