@@ -205,9 +205,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { error: rpcError } = await supabase.rpc('create_family_and_parent', {
           family_name: familyName,
           parent_display_name: displayName,
-          parent_phone: phone || null,
+          parent_phone: phone,
           family_email: familyEmail || email,
-          parent_username: username || null
+          parent_username: username
         });
 
         if (rpcError) throw rpcError;

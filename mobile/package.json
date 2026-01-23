@@ -43,5 +43,6 @@
     "babel-preset-expo": "^54.0.9",
     "typescript": "~5.9.2"
   },
+  "packageManager": "npm@10.0.0",
   "private": true
 }
